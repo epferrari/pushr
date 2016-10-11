@@ -1,0 +1,21 @@
+{
+  "name": "bully",
+  "version": "0.0.1",
+  "description": "A push-only websocket service with channel authentication",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "websocket",
+    "push",
+    "notification",
+    "realtime"
+  ],
+  "author": "Ethan Ferrari <ethan@ethanferrari.com>",
+  "license": "MIT",
+  "dependencies": {
+    "object-assign": "^4.1.0",
+    "sockjs": "^0.3.18"
+  }
+}
