@@ -15,6 +15,7 @@
   "author": "Ethan Ferrari <ethan@ethanferrari.com>",
   "license": "MIT",
   "dependencies": {
+    "chance": "^1.0.4",
     "object-assign": "^4.1.0",
     "sockjs": "^0.3.18"
   }
