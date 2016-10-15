@@ -4,29 +4,29 @@ const http = require('http');
 const sockjs = require('sockjs');
 const PushrClient = require("./pushr-client");
 
-const MSG = {
-  AUTH_REQ: 1,  // authentication request (inbound)
-  AUTH_ACK: 2,  // authentication acknowledgement, credentials saved (outbound)
-  AUTH_REJ: 3,  // authentication rejected, credentials were invalid (outbound)
-  AUTH_ERR: 4,  // authentication error, client has already saved credentials (outbound)
+const TYPE = {
+  AUTH_REQ: 1,    // authentication request (inbound)
+  AUTH_ACK: 2,    // authentication acknowledgement, credentials saved (outbound)
+  AUTH_REJ: 3,    // authentication rejected, credentials were invalid (outbound)
+  AUTH_ERR: 4,    // authentication error, client has already saved credentials (outbound)
 
-  SUB_REQ: 5,   // subscription request (inbound)
-  SUB_ACK: 6,   // subscription acknowledgement, authorized and subscribed (outbound)
-  SUB_REJ: 7,   // subscription rejection, unauthorized (outbound)
-  SUB_ERR: 8,   // subscription error (outbound)
+  SUB_REQ: 5,     // subscription request (inbound)
+  SUB_ACK: 6,     // subscription acknowledgement, authorized and subscribed (outbound)
+  SUB_REJ: 7,     // subscription rejection, unauthorized (outbound)
+  SUB_ERR: 8,     // subscription error (outbound)
 
-  UNS_REQ: 9,   // unsubscribe request (inbound)
-  UNS_ACK: 10,  // unsubscribe acknowledgement (outbound)
-  UNS_REJ: 11,  // unsubscribe rejection (outbound)
-  UNS_ERR: 12,  // unsubscribe error (outbound)
+  UNS_REQ: 9,     // unsubscribe request (inbound)
+  UNS_ACK: 10,    // unsubscribe acknowledgement (outbound)
+  UNS_REJ: 11,    // unsubscribe rejection (outbound)
+  UNS_ERR: 12,    // unsubscribe error (outbound)
 
-  CLS_REQ: 13,  // connection close request (inbound)
-  CLS_ACK: 14,  // connection close acknowledgement (outbound)
-  CLS_ERR: 15,  // connection close error (outbound)
+  CLOSE_REQ: 13,  // connection close request (inbound)
+  CLOSE_ACK: 14,  // connection close acknowledgement (outbound)
+  CLOSE_ERR: 15,  // connection close error (outbound)
 
-  TYP_ERR: 16,  // invalid message type (outbound)
-  BAD_REQ: 17,  // invalid message shape (outbound)
-  PUSH: 18      // message pushed to client
+  TYPE_ERR: 16,   // invalid message type (outbound)
+  BAD_REQ: 17,    // invalid message shape (outbound)
+  PUSH: 18        // message pushed to client (outbound)
 }
 
 const defaultConfig = {
@@ -61,7 +61,7 @@ module.exports = class Pushr {
     getter(this, 'authenticate', () =>
       (client, username, password) => {
         return config.authenticate(username, password)
-          .catch(() => this.clientAuthenticationError(client));
+          .catch( () => this.clientAuthenticationError(client));
       }
     );
 
@@ -102,16 +102,16 @@ module.exports = class Pushr {
         let {type, channel, payload} = message;
 
         switch(type){
-          case MSG.AUTH_REQ:
+          case TYPE.AUTH_REQ:
             this.handleClientAuthRequest(client, payload);
             break;
-          case MSG.SUB_REQ:
-            this.handleClientSubscriptionRequest(client, channel, payload);
+          case TYPE.SUB_REQ:
+            this.handleClientSubRequest(client, channel, payload);
             break;
-          case MSG.UNS_REQ:
-            this.handleClientUnsubscribeRequest(client, channel);
+          case TYPE.UNS_REQ:
+            this.handleClientUnsubRequest(client, channel);
             break;
-          case MSG.CLS_REQ:
+          case TYPE.CLOSE_REQ:
             this.handleClientCloseRequest(client);
             client = null;
             conn = null;
@@ -144,7 +144,7 @@ module.exports = class Pushr {
           if(config.storeCredentials){
             client.storeCredentials(username, password);
             client.authenticated = true;
-            client.send(MSG.AUTH_ACK, null, null);
+            client.send(TYPE.AUTH_ACK, null, null);
           }
         });
     }else{
@@ -152,7 +152,7 @@ module.exports = class Pushr {
     }
   }
 
-  handleClientSubscriptionRequest(client, channel, payload = {}){
+  handleClientSubRequest(client, channel, payload = {}){
     let subscribe = () => this.subscribe(client, channel);
 
     if(this.publicChannels.includes(channel)){
@@ -168,28 +168,20 @@ module.exports = class Pushr {
     }
   }
 
-  handleClientUnsubscribeRequest(client, channel, payload){
-    if(!client.authenticated){
-      this.clientAuthenticationError(client);
-    }else{
-      this.unsubscribe(client, channel);
-    }
+  handleClientUnsubRequest(client, channel){
+    this.unsubscribe(client, channel);
   }
 
   handleClientCloseRequest(client){
-    if(!client.authenticated){
-      this.clientAuthenticationError(client);
-    }else{
-      Object.keys(this.channels).forEach(channel => {
-        this.unsubscribe(client, channel);
-      });
-      client.send(MSG.CLS_ACK, null);
-    }
+    Object.keys(this.channels).forEach(channel => {
+      this.unsubscribe(client, channel);
+    });
+    client.send(TYPE.CLOSE_ACK, null);
   }
 
   handlePublishRequest(req, res){
     if(req.method === 'POST' && stripSlashes(req.url) === this.publishUrl){
-      let body = [];
+      let body = [], msg;
 
       req
       .on('data', chunk => body.push(chunk))
@@ -198,25 +190,32 @@ module.exports = class Pushr {
         try {
           body = JSON.parse(body);
           if( !this.verifyPublisher(req.headers, req.body, this.applicationKey) ){
-            let msg = 'Unauthorized publish request';
-            log(`Error: ${msg}`)
+            msg = 'Unauthorized publish request';
+            logError(`Error: ${msg}`)
             res.statusCode = 401;
             res.statusMessage = msg;
             res.end();
           }else{
             this.push(body.channel, body.payload)
-            .then(n => {
-              if(n)
-                log(`Received message, pushed to ${n} clients on channel "${body.channel}"`);
-              else
-                log(`Received message, no clients subscribed to channel "${body.channel}"`);
-              res.statusCode = 200;
-              res.end('ok');
-            });
+              .then(n => {
+                if(n)
+                  log(`Received message, pushed to ${n} clients on channel "${body.channel}"`);
+                else
+                  log(`Received message, no clients subscribed to channel "${body.channel}"`);
+                res.statusCode = 200;
+                res.end('ok');
+              })
+              .catch(() => {
+                let msg = `Channel "${channel}" does not exist at this time`;
+                log(msg);
+                res.statusCode(404);
+                res.statusMessage(msg);
+                res.end();
+              });
           }
         }catch (err){
-          let msg = 'Bad Request';
-          log(`Error: ${msg}`)
+          msg = 'Bad Request';
+          logError(`Error: ${msg}`)
           res.statusCode = 400;
           res.statusMessage = msg;
           res.end();
@@ -231,7 +230,8 @@ module.exports = class Pushr {
     }else{
       this.channels[channel] = [client];
     }
-    client.send(MSG.SUB_ACK, channel);
+
+    client.send(TYPE.SUB_ACK, channel);
     log(`client ${client.id} subscribed to channel "${channel}"`);
   }
 
@@ -243,49 +243,51 @@ module.exports = class Pushr {
       delete this.channels[channel];
     }
 
-    client.send(MSG.UNS_ACK, channel);
+    client.send(TYPE.UNS_ACK, channel);
     log(`client ${client.id} unsubscribed from channel "${channel}"`);
   }
 
   push(channel, payload){
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       if(this.channels[channel]){
         this.channels[channel].forEach(client =>
-          client.send(MSG.PUSH, channel, payload)
+          client.send(TYPE.PUSH, channel, payload)
         );
+        resolve((this.channels[channel]).length);
+      }else{
+        reject()
       }
-      resolve((this.channels[channel] || []).length);
     });
   }
 
   clientAuthenticationError(client){
-    client.send(MSG.AUTH_REJ, null, {
+    client.send(TYPE.AUTH_REJ, null, {
       reason: `Invalid credentials`
     });
     log(`Client ${client.id} rejected with invalid credentials`);
   }
 
   clientNotAuthorizedError(client, channel){
-    client.send(MSG.SUB_REJ, channel, {
+    client.send(TYPE.SUB_REJ, channel, {
       reason: `Not authorized for channel ${channel}`
     });
     log(`Client ${client.id} unauthorized for channel "${channel}"`);
   }
 
   clientInvalidTypeError(client){
-    client.send(MSG.TYP_ERR, null, {
+    client.send(TYPE.TYPE_ERR, null, {
       reason: `Invalid message type`
     });
   }
 
   clientInvalidShapeError(client){
-    client.send(MSG.BAD_REQ, null, {
+    client.send(TYPE.BAD_REQ, null, {
       reason: `Invalid message format, could not parse`
     });
   }
 
   alreadyAuthenticatedError(client){
-    client.send(MSG.AUTH_ERR, null, {
+    client.send(TYPE.AUTH_ERR, null, {
       reason: 'Already authenticated'
     });
   }
