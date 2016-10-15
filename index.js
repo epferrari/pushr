@@ -189,36 +189,34 @@ module.exports = class Pushr {
         body = Buffer.concat(body).toString();
         try {
           body = JSON.parse(body);
-          if( !this.verifyPublisher(req.headers, req.body, this.applicationKey) ){
-            msg = 'Unauthorized publish request';
+          let {channel, payload} = body;
+
+          if( !this.verifyPublisher(req.headers, body, this.applicationKey) ){
+            msg = 'unauthorized publish request';
             logError(`Error: ${msg}`)
             res.statusCode = 401;
-            res.statusMessage = msg;
-            res.end();
+            res.end(msg);
           }else{
-            this.push(body.channel, body.payload)
+            this.push(channel, payload)
               .then(n => {
-                if(n)
-                  log(`Received message, pushed to ${n} clients on channel "${body.channel}"`);
-                else
-                  log(`Received message, no clients subscribed to channel "${body.channel}"`);
-                res.statusCode = 200;
-                res.end('ok');
-              })
-              .catch(() => {
-                let msg = `Channel "${channel}" does not exist at this time`;
-                log(msg);
-                res.statusCode(404);
-                res.statusMessage(msg);
-                res.end();
+                if(n){
+                  msg = `pushed to ${n} clients on channel "${channel}"`;
+                  log(`received message, ${msg}`);
+                  res.statusCode = 200;
+                  res.end(msg);
+                }else{
+                  msg = `no clients subscribed to channel "${channel}"`;
+                  log(`received message, ${msg}`);
+                  res.statusCode = 404;
+                  res.end(msg);
+                }
               });
           }
         }catch (err){
           msg = 'Bad Request';
           logError(`Error: ${msg}`)
           res.statusCode = 400;
-          res.statusMessage = msg;
-          res.end();
+          res.end(msg);
         }
       });
     }
@@ -248,15 +246,10 @@ module.exports = class Pushr {
   }
 
   push(channel, payload){
-    return new Promise((resolve, reject) => {
-      if(this.channels[channel]){
-        this.channels[channel].forEach(client =>
-          client.send(TYPE.PUSH, channel, payload)
-        );
-        resolve((this.channels[channel]).length);
-      }else{
-        reject()
-      }
+    return new Promise((resolve) => {
+      if(this.channels[channel])
+        this.channels[channel].forEach(client => client.send(TYPE.PUSH, channel, payload));
+      resolve((this.channels[channel] || []).length);
     });
   }
 
@@ -264,31 +257,31 @@ module.exports = class Pushr {
     client.send(TYPE.AUTH_REJ, null, {
       reason: `Invalid credentials`
     });
-    log(`Client ${client.id} rejected with invalid credentials`);
+    log(`client ${client.id} rejected with invalid credentials`);
   }
 
   clientNotAuthorizedError(client, channel){
     client.send(TYPE.SUB_REJ, channel, {
       reason: `Not authorized for channel ${channel}`
     });
-    log(`Client ${client.id} unauthorized for channel "${channel}"`);
+    log(`client ${client.id} unauthorized for channel "${channel}"`);
   }
 
   clientInvalidTypeError(client){
     client.send(TYPE.TYPE_ERR, null, {
-      reason: `Invalid message type`
+      reason: `invalid message type`
     });
   }
 
   clientInvalidShapeError(client){
     client.send(TYPE.BAD_REQ, null, {
-      reason: `Invalid message format, could not parse`
+      reason: `invalid message format, could not parse`
     });
   }
 
   alreadyAuthenticatedError(client){
     client.send(TYPE.AUTH_ERR, null, {
-      reason: 'Already authenticated'
+      reason: 'already authenticated'
     });
   }
 }
