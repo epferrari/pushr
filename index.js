@@ -4,7 +4,7 @@ const http = require('http');
 const sockjs = require('sockjs');
 const PushrClient = require("./pushr-client");
 
-const TYPE = {
+const intent = {
   AUTH_REQ: 1,    // authentication request (inbound)
   AUTH_ACK: 2,    // authentication acknowledgement, credentials saved (outbound)
   AUTH_REJ: 3,    // authentication rejected, credentials were invalid (outbound)
@@ -24,7 +24,7 @@ const TYPE = {
   CLOSE_ACK: 14,  // connection close acknowledgement (outbound)
   CLOSE_ERR: 15,  // connection close error (outbound)
 
-  TYPE_ERR: 16,   // invalid message type (outbound)
+  INVLD_INT: 16,  // invalid message intent (outbound)
   BAD_REQ: 17,    // invalid message shape (outbound)
   PUSH: 18        // message pushed to client (outbound)
 }
@@ -36,8 +36,8 @@ const defaultConfig = {
   verifyPublisher: dummyVerifyPublisher,
   clientUrl: '/pushr',
   publishUrl: '/publish',
-  publicChannels: [], // channels available without authentication
-  protectedChannels: [], // channels available to any client who is authenticated
+  publicChannels: [], // topics available without authentication
+  protectedChannels: [], // topics available to any client who is authenticated
   storeCredentials: true,
   port: 9999,
   hostname: 'localhost'
@@ -59,21 +59,21 @@ module.exports = class Pushr {
     getter(this, 'verifyPublisher', () => config.verifyPublisher);
 
     getter(this, 'authenticate', () =>
-      (client, username, password) => {
-        return config.authenticate(username, password)
+      (client, auth = {}) => {
+        return config.authenticate(auth)
           .catch( () => this.clientAuthenticationError(client));
       }
     );
 
     getter(this, 'authorize', () =>
-      (client, channel, username, password) => {
+      (client, topic, auth = {}) => {
         if(client.authenticated){
-          return config.authorizeChannel(channel, client.credentials.username, client.credentials.password)
-            .catch( () => this.clientNotAuthorizedError(client, channel) )
+          return config.authorizeChannel(topic, client.credentials)
+            .catch( () => this.clientNotAuthorizedError(client, topic) )
         }else{
-          return this.authenticate(client, username, password)
-            .then( () => config.authorizeChannel(channel, username, password) )
-            .catch( () => this.clientNotAuthorizedError(client, channel) )
+          return this.authenticate(client, auth)
+            .then( () => config.authorizeChannel(topic, auth) )
+            .catch( () => this.clientNotAuthorizedError(client, topic) )
         }
       }
     );
@@ -99,19 +99,20 @@ module.exports = class Pushr {
           return;
         }
 
-        let {type, channel, payload} = message;
+        let {intent, topic, payload} = message;
+        let auth = (payload || {}).auth;
 
-        switch(type){
-          case TYPE.AUTH_REQ:
-            this.handleClientAuthRequest(client, payload);
+        switch(intent){
+          case intent.AUTH_REQ:
+            this.handleClientAuthRequest(client, auth);
             break;
-          case TYPE.SUB_REQ:
-            this.handleClientSubRequest(client, channel, payload);
+          case intent.SUB_REQ:
+            this.handleClientSubRequest(client, topic, auth);
             break;
-          case TYPE.UNS_REQ:
-            this.handleClientUnsubRequest(client, channel);
+          case intent.UNS_REQ:
+            this.handleClientUnsubRequest(client, topic);
             break;
-          case TYPE.CLOSE_REQ:
+          case intent.CLOSE_REQ:
             this.handleClientCloseRequest(client);
             client = null;
             conn = null;
@@ -139,12 +140,12 @@ module.exports = class Pushr {
   */
   handleClientAuthRequest(client, payload = {}){
     if(!client.authenticated){
-      this.authenticate(client, payload.username, payload.password)
+      this.authenticate(client, payload.auth)
         .then(() => {
           if(config.storeCredentials){
-            client.storeCredentials(username, password);
+            client.storeCredentials(payload.auth);
             client.authenticated = true;
-            client.send(TYPE.AUTH_ACK, null, null);
+            client.send(intent.AUTH_ACK, null, null);
           }
         });
     }else{
@@ -152,31 +153,31 @@ module.exports = class Pushr {
     }
   }
 
-  handleClientSubRequest(client, channel, payload = {}){
-    let subscribe = () => this.subscribe(client, channel);
+  handleClientSubRequest(client, topic, payload = {}){
+    let subscribe = () => this.subscribe(client, topic);
 
-    if(this.publicChannels.includes(channel)){
+    if(this.publicChannels.includes(topic)){
       subscribe();
-    }else if(this.protectedChannels.includes(channel)){
+    }else if(this.protectedChannels.includes(topic)){
       if(client.authenticated){
         subscribe();
       }else{
-        this.authenticate(client, payload.username, payload.password).then(subscribe);
+        this.authenticate(client, payload.auth).then(subscribe);
       }
     }else{
-      this.authorize(client, channel, payload.username, payload.password).then(subscribe);
+      this.authorize(client, topic, payload.auth).then(subscribe);
     }
   }
 
-  handleClientUnsubRequest(client, channel){
-    this.unsubscribe(client, channel);
+  handleClientUnsubRequest(client, topic){
+    this.unsubscribe(client, topic);
   }
 
   handleClientCloseRequest(client){
-    Object.keys(this.channels).forEach(channel => {
-      this.unsubscribe(client, channel);
+    Object.keys(this.channels).forEach(topic => {
+      this.unsubscribe(client, topic);
     });
-    client.send(TYPE.CLOSE_ACK, null);
+    client.send(intent.CLOSE_ACK, null);
   }
 
   handlePublishRequest(req, res){
@@ -189,7 +190,7 @@ module.exports = class Pushr {
         body = Buffer.concat(body).toString();
         try {
           body = JSON.parse(body);
-          let {channel, payload} = body;
+          let {topic, payload} = body;
 
           if( !this.verifyPublisher(req.headers, body, this.applicationKey) ){
             msg = 'unauthorized publish request';
@@ -197,15 +198,15 @@ module.exports = class Pushr {
             res.statusCode = 401;
             res.end(msg);
           }else{
-            this.push(channel, payload)
+            this.push(topic, payload)
               .then(n => {
                 if(n){
-                  msg = `pushed to ${n} clients on channel "${channel}"`;
+                  msg = `pushed to ${n} clients subscribed to "${topic}"`;
                   log(`received message, ${msg}`);
                   res.statusCode = 200;
                   res.end(msg);
                 }else{
-                  msg = `no clients subscribed to channel "${channel}"`;
+                  msg = `no clients subscribed to "${topic}"`;
                   log(`received message, ${msg}`);
                   res.statusCode = 404;
                   res.end(msg);
@@ -222,65 +223,65 @@ module.exports = class Pushr {
     }
   }
 
-  subscribe(client, channel){
-    if(this.channels[channel]){
-      this.channels[channel].push(client);
+  subscribe(client, topic){
+    if(this.channels[topic]){
+      this.channels[topic].push(client);
     }else{
-      this.channels[channel] = [client];
+      this.channels[topic] = [client];
     }
 
-    client.send(TYPE.SUB_ACK, channel);
-    log(`client ${client.id} subscribed to channel "${channel}"`);
+    client.send(intent.SUB_ACK, topic);
+    log(`client ${client.id} subscribed to "${topic}"`);
   }
 
-  unsubscribe(client, channel){
-    if(this.channels[channel]){
-      this.channels[channel] = this.channels[channel].filter(_client => _client !== client);
+  unsubscribe(client, topic){
+    if(this.channels[topic]){
+      this.channels[topic] = this.channels[topic].filter(_client => _client !== client);
     }
-    if(!this.channels[channel].length){
-      delete this.channels[channel];
+    if(!this.channels[topic].length){
+      delete this.channels[topic];
     }
 
-    client.send(TYPE.UNS_ACK, channel);
-    log(`client ${client.id} unsubscribed from channel "${channel}"`);
+    client.send(intent.UNS_ACK, topic);
+    log(`client ${client.id} unsubscribed from "${topic}"`);
   }
 
-  push(channel, payload){
+  push(topic, payload){
     return new Promise((resolve) => {
-      if(this.channels[channel])
-        this.channels[channel].forEach(client => client.send(TYPE.PUSH, channel, payload));
-      resolve((this.channels[channel] || []).length);
+      if(this.channels[topic])
+        this.channels[topic].forEach(client => client.send(intent.PUSH, topic, payload));
+      resolve((this.channels[topic] || []).length);
     });
   }
 
   clientAuthenticationError(client){
-    client.send(TYPE.AUTH_REJ, null, {
+    client.send(intent.AUTH_REJ, null, {
       reason: `Invalid credentials`
     });
     log(`client ${client.id} rejected with invalid credentials`);
   }
 
-  clientNotAuthorizedError(client, channel){
-    client.send(TYPE.SUB_REJ, channel, {
-      reason: `Not authorized for channel ${channel}`
+  clientNotAuthorizedError(client, topic){
+    client.send(intent.SUB_REJ, topic, {
+      reason: `Not authorized to subscribe to "${topic}"`
     });
-    log(`client ${client.id} unauthorized for channel "${channel}"`);
+    log(`client ${client.id} unauthorized to subscribe to "${topic}"`);
   }
 
   clientInvalidTypeError(client){
-    client.send(TYPE.TYPE_ERR, null, {
-      reason: `invalid message type`
+    client.send(intent.INVLD_INT, null, {
+      reason: `invalid message intent`
     });
   }
 
   clientInvalidShapeError(client){
-    client.send(TYPE.BAD_REQ, null, {
+    client.send(intent.BAD_REQ, null, {
       reason: `invalid message format, could not parse`
     });
   }
 
   alreadyAuthenticatedError(client){
-    client.send(TYPE.AUTH_ERR, null, {
+    client.send(intent.AUTH_ERR, null, {
       reason: 'already authenticated'
     });
   }
@@ -305,7 +306,7 @@ function dummyAuthenticate(username, password){
   return Promise.resolve();
 }
 
-function dummyAuthorize(channel, client){
+function dummyAuthorize(topic, client){
   return Promise.resolve();
 }
 

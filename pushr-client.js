@@ -11,9 +11,8 @@ module.exports = class PushrClient {
 
     const credentials = {};
 
-    this.storeCredentials = (u, p) => {
-      credentials.username = u;
-      credentials.password = p;
+    this.storeCredentials = (c = {}) => {
+      credentials = c;
     }
 
     Object.defineProperty(this, 'credentials', {
@@ -24,9 +23,7 @@ module.exports = class PushrClient {
     });
   }
 
-  send(type, channel, payload = {}){
-    this.conn.write(JSON.stringify({
-      type, channel, payload
-    }));
+  send(intent, topic, payload = {}){
+    this.conn.write(JSON.stringify({ intent, topic, payload }));
   }
 }
