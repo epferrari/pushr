@@ -18,8 +18,7 @@ module.exports = class PushrClient {
     Object.defineProperty(this, 'credentials', {
       get: () => credentials,
       enumerable: false,
-      configurable: false,
-      writable: false
+      configurable: false
     });
   }
 

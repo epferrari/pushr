@@ -82,9 +82,6 @@ module.exports = class Pushr {
     const service = (config.service || createSockService());
     const server = (config.server || http.createServer(this.handlePublishRequest.bind(this)));
 
-
-    service.installHandlers(server, {prefix});
-
     service.on('connection', conn => {
 
       let client = new PushrClient(conn);
@@ -123,6 +120,7 @@ module.exports = class Pushr {
       });
     });
 
+    service.installHandlers(server, {prefix: `/${prefix}`});
     server.listen(config.port, config.hostname, () => {
       log(`listening for publish requests at ${config.hostname}:${config.port}/${publishUrl}`);
       log(`accepting socket clients on ${config.hostname}:${config.port}/${prefix}`);
