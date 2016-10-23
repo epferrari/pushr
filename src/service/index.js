@@ -4,7 +4,7 @@ const http = require('http');
 const sockjs = require('sockjs');
 const ClientConnection = require("../client-connection");
 
-const intent = require("../intent-codes");
+const intents = require("../intents");
 
 const defaultConfig = {
   applicationKey: null,
@@ -76,16 +76,16 @@ module.exports = class Pushr {
         let auth = (payload || {}).auth;
 
         switch(intent){
-          case intent.AUTH_REQ:
+          case intents.AUTH_REQ:
             this.handleClientAuthRequest(client, auth);
             break;
-          case intent.SUB_REQ:
+          case intents.SUB_REQ:
             this.handleClientSubRequest(client, topic, auth);
             break;
-          case intent.UNS_REQ:
+          case intents.UNS_REQ:
             this.handleClientUnsubRequest(client, topic);
             break;
-          case intent.CLOSE_REQ:
+          case intents.CLOSE_REQ:
             this.handleClientCloseRequest(client);
             client = null;
             conn = null;
@@ -120,7 +120,7 @@ module.exports = class Pushr {
           if(config.storeCredentials){
             client.storeCredentials(payload.auth);
             client.authenticated = true;
-            client.send(intent.AUTH_ACK, null, null);
+            client.send(intents.AUTH_ACK, null, null);
           }
         });
     }else{
@@ -152,7 +152,7 @@ module.exports = class Pushr {
     Object.keys(this.channels).forEach(topic => {
       this.unsubscribe(client, topic);
     });
-    client.send(intent.CLOSE_ACK, null);
+    client.send(intents.CLOSE_ACK, null);
   }
 
   handlePublishRequest(req, res){
@@ -205,7 +205,7 @@ module.exports = class Pushr {
       this.channels[topic] = [client];
     }
 
-    client.send(intent.SUB_ACK, topic);
+    client.send(intents.SUB_ACK, topic);
     log(`client ${client.id} subscribed to "${topic}"`);
   }
 
@@ -218,46 +218,46 @@ module.exports = class Pushr {
       delete this.channels[topic];
     }
 
-    client.send(intent.UNS_ACK, topic);
+    client.send(intents.UNS_ACK, topic);
     log(`client ${client.id} unsubscribed from "${topic}"`);
   }
 
   push(topic, payload){
     return new Promise((resolve) => {
       if(this.channels[topic])
-        this.channels[topic].forEach(client => client.send(intent.PUSH, topic, payload));
+        this.channels[topic].forEach(client => client.send(intents.PUSH, topic, payload));
       resolve((this.channels[topic] || []).length);
     });
   }
 
   clientAuthenticationError(client){
-    client.send(intent.AUTH_REJ, null, {
+    client.send(intents.AUTH_REJ, null, {
       reason: `Invalid credentials`
     });
     log(`client ${client.id} rejected with invalid credentials`);
   }
 
   clientNotAuthorizedError(client, topic){
-    client.send(intent.SUB_REJ, topic, {
+    client.send(intents.SUB_REJ, topic, {
       reason: `Not authorized to subscribe to "${topic}"`
     });
     log(`client ${client.id} unauthorized to subscribe to "${topic}"`);
   }
 
   clientInvalidIntentError(client){
-    client.send(intent.INVLD_INTENT, null, {
-      reason: `invalid message intent`
+    client.send(intents.INVLD_INTENT, null, {
+      reason: `invalid message intents`
     });
   }
 
   clientInvalidMessageError(client){
-    client.send(intent.INVLD_MSG, null, {
+    client.send(intents.INVLD_MSG, null, {
       reason: `invalid message format, could not parse`
     });
   }
 
   alreadyAuthenticatedError(client){
-    client.send(intent.AUTH_ERR, null, {
+    client.send(intents.AUTH_ERR, null, {
       reason: 'already authenticated'
     });
   }

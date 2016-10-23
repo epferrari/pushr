@@ -3,11 +3,14 @@
 const EventEmitter = require("events");
 const mock = require("mock-require");
 const Pushr = require("./");
+const intents = require("../intents");
 
 class MockConnection extends EventEmitter {
   constructor(){
     super();
     this.write = jasmine.createSpy('conn.write');
+    this.emulateData = message =>
+      this.emit('data', JSON.stringify(message));
   }
 }
 
@@ -18,6 +21,7 @@ describe("Pushr service", () => {
 
     spyOn(pushr, "clientInvalidMessageError");
     spyOn(pushr, "clientInvalidIntentError");
+    spyOn(pushr, "handleClientAuthRequest");
   });
 
   describe("handling a client connection", () => {
@@ -29,7 +33,12 @@ describe("Pushr service", () => {
     });
 
     describe("given the client's intent is authentication", () => {
-
+      it("calls <Pushr>#handleClientAuthRequest", () => {
+        conn.emulateData({
+          intent: intents.AUTH_REQ
+        });
+        expect(pushr.handleClientAuthRequest).toHaveBeenCalled();
+      });
     });
 
     describe("given the client's intent is subscribing", () => {
@@ -46,17 +55,10 @@ describe("Pushr service", () => {
 
     describe("given the client's intent is unrecognized", () => {
       it("calls <Pushr>#invalidIntentError", () => {
-        conn.emit("data", JSON.stringify({
+        conn.emulateData({
           "intent": "whizbang"
-        }));
+        });
         expect(pushr.clientInvalidIntentError).toHaveBeenCalled();
-      });
-    });
-
-    describe("given the client sends an unparsable message", () => {
-      it("calls <Pushr>#invalidMessageError", () => {
-        conn.emit("data", function(){});
-        expect(pushr.clientInvalidMessageError).toHaveBeenCalled();
       });
     });
   });
