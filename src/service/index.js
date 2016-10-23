@@ -34,6 +34,7 @@ module.exports = class Pushr {
     getter(this, 'protectedChannels', () => config.protectedChannels);
     getter(this, 'publishUrl', () => publishUrl);
     getter(this, 'verifyPublisher', () => config.verifyPublisher);
+    getter(this, 'storeCredentials', () => config.storeCredentials);
 
     getter(this, 'authenticate', () =>
       (client, auth = {}) => {
@@ -60,7 +61,6 @@ module.exports = class Pushr {
     const server = (config.server || http.createServer(this.handlePublishRequest.bind(this)));
 
     this.service.on('connection', conn => {
-
       let client = new ClientConnection(conn);
 
       client.conn.on('data', message => {
@@ -113,12 +113,12 @@ module.exports = class Pushr {
   * @param {ClientConnection} client
   * @param {object} payload
   */
-  handleClientAuthRequest(client, payload = {}){
+  handleClientAuthRequest(client, auth){
     if(!client.authenticated){
-      this.authenticate(client, payload.auth)
+      this.authenticate(client, auth)
         .then(() => {
-          if(config.storeCredentials){
-            client.storeCredentials(payload.auth);
+          if(this.storeCredentials){
+            client.storeCredentials(auth);
             client.authenticated = true;
             client.send(intents.AUTH_ACK, null, null);
           }
