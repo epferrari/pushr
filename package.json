@@ -1,5 +1,5 @@
 {
-  "name": "bully",
+  "name": "pushr",
   "version": "0.0.1",
   "description": "A push-only websocket service with channel authentication",
   "main": "index.js",
