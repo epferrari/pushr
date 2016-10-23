@@ -9,7 +9,7 @@ module.exports = class PushrClient {
     this.conn = conn;
     this.authenticated = false;
 
-    const credentials = {};
+    let credentials = {};
 
     this.storeCredentials = (c = {}) => {
       credentials = c;
