@@ -94,6 +94,12 @@ module.exports = class Pushr {
             this.clientInvalidIntentError(client);
         }
       });
+
+      client.conn.on("close", () => {
+        this.handleClientCloseRequest(client);
+        client = null;
+        conn = null;
+      });
     });
 
     this.service.installHandlers(server, {prefix: `/${prefix}`});
@@ -165,7 +171,7 @@ module.exports = class Pushr {
         body = Buffer.concat(body).toString();
         try {
           body = JSON.parse(body);
-          let {topic, payload} = body;
+          let {topic, event, payload} = body;
 
           if( !this.verifyPublisher(req.headers, body, this.applicationKey) ){
             msg = 'unauthorized publish request';
@@ -173,10 +179,11 @@ module.exports = class Pushr {
             res.statusCode = 401;
             res.end(msg);
           }else{
-            this.push(topic, payload)
+            this.push(topic, {event, payload})
               .then(n => {
                 if(n){
                   msg = `pushed to ${n} clients subscribed to "${topic}"`;
+                  event && (msg = `${msg}. event: ${event}`);
                   log(`received message, ${msg}`);
                   res.statusCode = 200;
                   res.end(msg);
@@ -222,10 +229,10 @@ module.exports = class Pushr {
     log(`client ${client.id} unsubscribed from "${topic}"`);
   }
 
-  push(topic, payload){
+  push(topic, data = {}){
     return new Promise((resolve) => {
       if(this.channels[topic])
-        this.channels[topic].forEach(client => client.send(intents.PUSH, topic, payload));
+        this.channels[topic].forEach(client => client.push(topic, data));
       resolve((this.channels[topic] || []).length);
     });
   }

@@ -2,6 +2,7 @@
 
 const Chance = require("chance")
 const chance = new Chance();
+const intents = require("../intents");
 
 module.exports = class PushrClient {
   constructor(conn){
@@ -24,5 +25,15 @@ module.exports = class PushrClient {
 
   send(intent, topic, payload = {}){
     this.conn.write(JSON.stringify({ intent, topic, payload }));
+  }
+
+  push(topic, data = {}){
+    let {event, payload} = data;
+    this.conn.write(JSON.stringify({
+      intent: intents.PUSH,
+      topic,
+      event,
+      payload
+    }));
   }
 }
