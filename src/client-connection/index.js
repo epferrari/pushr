@@ -14,7 +14,7 @@ module.exports = class PushrClient {
 
     this.storeCredentials = (c = {}) => {
       credentials = c;
-    }
+    };
 
     Object.defineProperty(this, 'credentials', {
       get: () => credentials,

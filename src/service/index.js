@@ -37,21 +37,16 @@ module.exports = class Pushr {
     getter(this, 'storeCredentials', () => config.storeCredentials);
 
     getter(this, 'authenticate', () =>
-      (client, auth = {}) => {
-        return config.authenticate(auth)
-          .catch( () => this.clientAuthenticationError(client));
-      }
+      (auth = {}) => config.authenticate(auth)
     );
 
     getter(this, 'authorize', () =>
       (client, topic, auth = {}) => {
         if(client.authenticated){
           return config.authorizeChannel(topic, client.credentials)
-            .catch( () => this.clientNotAuthorizedError(client, topic) )
         }else{
-          return this.authenticate(client, auth)
+          return this.authenticate(auth)
             .then( () => config.authorizeChannel(topic, auth) )
-            .catch( () => this.clientNotAuthorizedError(client, topic) )
         }
       }
     );
@@ -121,20 +116,21 @@ module.exports = class Pushr {
   */
   handleClientAuthRequest(client, auth){
     if(!client.authenticated){
-      this.authenticate(client, auth)
-        .then(() => {
-          if(this.storeCredentials){
-            client.storeCredentials(auth);
-            client.authenticated = true;
-            client.send(intents.AUTH_ACK, null, null);
-          }
-        });
+      this.authenticate(auth)
+      .then(() => {
+        if(this.storeCredentials){
+          client.storeCredentials(auth);
+          client.authenticated = true;
+          client.send(intents.AUTH_ACK, null, null);
+        }
+      })
+      .catch( () => this.clientAuthenticationError(client));
     }else{
       this.alreadyAuthenticatedError(client);
     }
   }
 
-  handleClientSubRequest(client, topic, payload = {}){
+  handleClientSubRequest(client, topic, auth = {}){
     let subscribe = () => this.subscribe(client, topic);
 
     if(this.publicChannels.includes(topic)){
@@ -143,10 +139,14 @@ module.exports = class Pushr {
       if(client.authenticated){
         subscribe();
       }else{
-        this.authenticate(client, payload.auth).then(subscribe);
+        this.authenticate(auth)
+        .then(subscribe)
+        .catch( () => this.clientAuthenticationError(client));
       }
     }else{
-      this.authorize(client, topic, payload.auth).then(subscribe);
+      this.authorize(client, topic, auth)
+      .then(subscribe)
+      .catch( () => this.clientNotAuthorizedError(client, topic) );;
     }
   }
 
@@ -212,8 +212,9 @@ module.exports = class Pushr {
       this.channels[topic] = [client];
     }
 
-    client.send(intents.SUB_ACK, topic);
-    log(`client ${client.id} subscribed to "${topic}"`);
+    let message = `Subscribed to "${topic}"`;
+    client.send(intents.SUB_ACK, topic, {topic});
+    log(`client id: ${client.id} -- ${message}`);
   }
 
   unsubscribe(client, topic){
@@ -225,8 +226,9 @@ module.exports = class Pushr {
       delete this.channels[topic];
     }
 
-    client.send(intents.UNS_ACK, topic);
-    log(`client ${client.id} unsubscribed from "${topic}"`);
+    let message = `Unsubscribed from "${topic}"`;
+    client.send(intents.UNS_ACK, topic, {topic});
+    log(`client id: ${client.id} -- ${message}`);
   }
 
   push(topic, payload = {}){
@@ -238,35 +240,33 @@ module.exports = class Pushr {
   }
 
   clientAuthenticationError(client){
-    client.send(intents.AUTH_REJ, null, {
-      reason: `Invalid credentials`
-    });
-    log(`client ${client.id} rejected with invalid credentials`);
+    let message = `Unable to authenticate. Invalid credentials.`;
+    client.send(intents.AUTH_REJ, null, {message});
+    log(`client id: ${client.id} -- ${message}`);
   }
 
   clientNotAuthorizedError(client, topic){
-    client.send(intents.SUB_REJ, topic, {
-      reason: `Not authorized to subscribe to "${topic}"`
-    });
-    log(`client ${client.id} unauthorized to subscribe to "${topic}"`);
+    let message = `Unauthorized to subscribe to "${topic}"`;
+    client.send(intents.SUB_REJ, topic, {message});
+    log(`client id: ${client.id} -- ${message}`);
   }
 
   clientInvalidIntentError(client){
-    client.send(intents.INVLD_INTENT, null, {
-      reason: `invalid message intents`
-    });
+    let message = `Invalid intent`;
+    client.send(intents.INVLD_INTENT, null, {message});
+    log(`client id: ${client.id} -- ${message}`);
   }
 
   clientInvalidMessageError(client){
-    client.send(intents.INVLD_MSG, null, {
-      reason: `invalid message format, could not parse`
-    });
+    let message = `Invalid message format, could not parse.`
+    client.send(intents.INVLD_MSG, null, {message});
+    log(`client id: ${client.id} -- ${message}`);
   }
 
   alreadyAuthenticatedError(client){
-    client.send(intents.AUTH_ERR, null, {
-      reason: 'already authenticated'
-    });
+    let message = `Already authenticated`;
+    client.send(intents.AUTH_ERR, null, {message});
+    log(`client id: ${client.id} -- ${message}`);
   }
 }
 
@@ -278,7 +278,7 @@ function stripSlashes(path){
 }
 
 function timestamp(){
-  return new Date().toString();
+  return `[ ${new Date().toISOString()} ]`;
 }
 
 function createSockService(){
