@@ -27,13 +27,7 @@ module.exports = class PushrClient {
     this.conn.write(JSON.stringify({ intent, topic, payload }));
   }
 
-  push(topic, data = {}){
-    let {event, payload} = data;
-    this.conn.write(JSON.stringify({
-      intent: intents.PUSH,
-      topic,
-      event,
-      payload
-    }));
+  push(topic, payload = {}){
+    this.send(intents.PUSH, topic, payload);
   }
 }

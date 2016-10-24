@@ -171,7 +171,7 @@ module.exports = class Pushr {
         body = Buffer.concat(body).toString();
         try {
           body = JSON.parse(body);
-          let {topic, event, payload} = body;
+          let {topic, event, data} = body;
 
           if( !this.verifyPublisher(req.headers, body, this.applicationKey) ){
             msg = 'unauthorized publish request';
@@ -179,11 +179,11 @@ module.exports = class Pushr {
             res.statusCode = 401;
             res.end(msg);
           }else{
-            this.push(topic, {event, payload})
+            this.push(topic, {event, data})
               .then(n => {
                 if(n){
                   msg = `pushed to ${n} clients subscribed to "${topic}"`;
-                  event && (msg = `${msg}. event: ${event}`);
+                  event && (msg = `${msg}. event: "${event}"`);
                   log(`received message, ${msg}`);
                   res.statusCode = 200;
                   res.end(msg);
@@ -229,10 +229,10 @@ module.exports = class Pushr {
     log(`client ${client.id} unsubscribed from "${topic}"`);
   }
 
-  push(topic, data = {}){
+  push(topic, payload = {}){
     return new Promise((resolve) => {
       if(this.channels[topic])
-        this.channels[topic].forEach(client => client.push(topic, data));
+        this.channels[topic].forEach(client => client.push(topic, payload));
       resolve((this.channels[topic] || []).length);
     });
   }
