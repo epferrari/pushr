@@ -9,31 +9,37 @@ class MockConnection extends EventEmitter {
   constructor(){
     super();
     this.write = jasmine.createSpy('conn.write');
-    this.mockMessage = message =>
-      this.emit('data', JSON.stringify(message));
   }
 }
 
 describe("Pushr service", () => {
-  let pushr, config;
-  beforeEach(() => {
-    // spying on config.authenticate because <Pushr>.authenticate is not writable
-    config = {
-      authenticate(){
-        let resolve, reject;
-        let p = new Promise((res, rej) => {
-          resolve = res;
-          reject = rej;
-        });
-        p.resolve = resolve;
-        p.reject = reject;
-        return p;
-      }
-    };
+  let pushr, server, service, createConnection, mockMessage;
 
-    spyOn(config, 'authenticate').and.callThrough();
+  // configuration functions
+  let authenticate, authorizeChannel, verifyPublisher;
+
+  // allow for dynamic configuration per spec/scenario
+  // stub out http server and sockjs service
+  function configurePushr(config = {}){
+    server = new EventEmitter();
+    server.listen = jasmine.createSpy('server.listen');
+
+    service = new EventEmitter();
+    service.installHandlers = jasmine.createSpy("service.installHandlers");
+
+    Object.assign(config, {server, service});
 
     pushr = new Pushr(config);
+
+    createConnection = () => {
+      let conn = new MockConnection();
+      service.emit('connection', conn);
+      return conn;
+    };
+
+    mockMessage = (conn, message) => {
+      conn.emit('data', JSON.stringify(message));
+    };
 
     spyOn(pushr, "clientInvalidMessageError");
     spyOn(pushr, "clientInvalidIntentError");
@@ -46,19 +52,34 @@ describe("Pushr service", () => {
     //spyOn(pushr, "");
     //spyOn(pushr, "");
     //spyOn(pushr, "");
+  }
+
+  beforeEach(() => {
+    // authenticate fn for Pushr config
+    authenticate = jasmine.createSpy('authenticate')
+      .and.callFake(() => {
+        let resolve, reject;
+        let p = new Promise((res, rej) => {
+          resolve = res;
+          reject = rej;
+        });
+        p.resolve = resolve;
+        p.reject = reject;
+        return p;
+      });
   });
 
   describe("handling a client connection", () => {
     let conn;
 
     beforeEach(() => {
-      conn = new MockConnection();
-      pushr.service.emit("connection", conn);
+      configurePushr({authenticate});
+      conn = createConnection();
     });
 
     describe("given the client's intent is authentication", () => {
       beforeEach(() => {
-        conn.mockMessage({intent: intents.AUTH_REQ});
+        mockMessage(conn, {intent: intents.AUTH_REQ});
       });
 
       it("calls <Pushr>#handleClientAuthRequest", () => {
@@ -67,17 +88,17 @@ describe("Pushr service", () => {
 
       describe("and given the client is not authenticated yet", () => {
         it("authenticates the client", () => {
-          expect(config.authenticate).toHaveBeenCalled();
+          expect(authenticate).toHaveBeenCalled();
         });
       });
 
       describe("and given the client already authenticated", () => {
         it("sends the client an error", done => {
-          expect(config.authenticate).toHaveBeenCalledTimes(1);
-          config.authenticate.calls.mostRecent().returnValue.resolve();
+          expect(authenticate).toHaveBeenCalledTimes(1);
+          authenticate.calls.mostRecent().returnValue.resolve();
           setTimeout(() => {
-            conn.mockMessage({intent: intents.AUTH_REQ});
-            expect(config.authenticate).toHaveBeenCalledTimes(1);
+            mockMessage(conn, {intent: intents.AUTH_REQ});
+            expect(authenticate).toHaveBeenCalledTimes(1);
             expect(pushr.alreadyAuthenticatedError).toHaveBeenCalled();
             done();
           }, 0);
@@ -99,10 +120,81 @@ describe("Pushr service", () => {
 
     describe("given the client's intent is unrecognized", () => {
       it("calls <Pushr>#invalidIntentError", () => {
-        conn.mockMessage({
-          "intent": "whizbang"
-        });
+        mockMessage(conn, {intent: "whizbang"});
         expect(pushr.clientInvalidIntentError).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe("#handleClientAuthRequest", () => {
+    let client, auth;
+
+    function configureAndSpy(config){
+      configurePushr({authenticate});
+      conn = createConnection();
+
+      mockMessage(conn, {
+        intent: intents.AUTH_REQ,
+        payload: {
+          auth: {
+            username: "john_smith",
+            password: "strong_password_1"
+          }
+        }
+      });
+
+      let lastCall = pushr.handleClientAuthRequest.calls.mostRecent();
+      auth = lastCall.args[1];
+      client = lastCall.args[0];
+
+      spyOn(client, 'storeCredentials');
+      spyOn(client, 'send');
+    }
+
+
+    describe("given an `authenticate` function is provided at configurtion", () => {
+      it("authenticates the client using the function", () => {
+
+      });
+    });
+
+    describe("when authentication is successful", () => {
+      describe("and given <Pushr> instance is configured to store client credentials", () => {
+        it("stores the clients credentials", () => {
+
+        });
+
+        it("flags the client as authenticated", () => {
+
+        });
+
+        it("sends acknowledgement to the client", () => {
+
+        });
+      });
+
+      describe("and given <Pushr> instance is configured not to store client credentials", () => {
+        it("does not store the clients credentials", () => {
+
+        });
+
+        it("does not flag the client as authenticated", () => {
+
+        });
+      });
+    });
+
+    describe("when authentication fails", () => {
+      it("notifies the client of the authentication error", () => {
+
+      });
+
+      it("does not store the clients credentials", () => {
+
+      });
+
+      it("does not flag the client as authenticated", () => {
+
       });
     });
   });

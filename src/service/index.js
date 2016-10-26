@@ -26,8 +26,10 @@ module.exports = class Pushr {
 
     config = Object.assign({}, defaultConfig, config);
 
-    let prefix = stripSlashes(config.clientUrl);
-    let publishUrl = stripSlashes(config.publishUrl);
+    let prefix = stripSlashes(config.clientUrl),
+        publishUrl = stripSlashes(config.publishUrl),
+        sockService = (config.service || createSockService()),
+        server = (config.server || http.createServer());
 
     getter(this, 'applicationKey', () => config.applicationKey);
     getter(this, 'publicChannels', () => config.publicChannels);
@@ -51,11 +53,9 @@ module.exports = class Pushr {
       }
     );
 
+    server.on('request', this.handlePublishRequest.bind(this));
 
-    this.service = (config.service || createSockService());
-    const server = (config.server || http.createServer(this.handlePublishRequest.bind(this)));
-
-    this.service.on('connection', conn => {
+    sockService.on('connection', conn => {
       let client = new ClientConnection(conn);
 
       client.conn.on('data', message => {
@@ -97,7 +97,7 @@ module.exports = class Pushr {
       });
     });
 
-    this.service.installHandlers(server, {prefix: `/${prefix}`});
+    sockService.installHandlers(server, {prefix: `/${prefix}`});
 
     server.listen(config.port, config.hostname, () => {
       log(`listening for publish requests at ${config.hostname}:${config.port}/${publishUrl}`);
