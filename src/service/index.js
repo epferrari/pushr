@@ -5,6 +5,8 @@ const sockjs = require('sockjs');
 const ClientConnection = require("../client-connection");
 
 const intents = require("../intents");
+const log = require("../utils/log");
+const logError = require("../utils/log-error");
 
 const defaultConfig = {
   applicationKey: null,
@@ -18,6 +20,7 @@ const defaultConfig = {
   storeCredentials: true,
   port: 9999,
   hostname: 'localhost'
+  //enableOpenChannel: false // "*" channel
 }
 
 module.exports = class Pushr {
@@ -56,14 +59,23 @@ module.exports = class Pushr {
     server.on('request', this.handlePublishRequest.bind(this));
 
     sockService.on('connection', conn => {
-      let client = new ClientConnection(conn);
+      let client = new ClientConnection(conn, this);
 
+      client.subscribe("*");
+
+      let removeClient = () => {
+        client.close();
+        client = null;
+        conn = null;
+      };
+
+      client.conn.on('close', removeClient);
       client.conn.on('data', message => {
 
         try {
           message = JSON.parse(message);
         } catch (err) {
-          this.clientInvalidMessageError(client);
+          client.invalidMessageError();
           return;
         }
 
@@ -72,28 +84,20 @@ module.exports = class Pushr {
 
         switch(intent){
           case intents.AUTH_REQ:
-            this.handleClientAuthRequest(client, auth);
+            this.handleAuthRequest(client, auth);
             break;
           case intents.SUB_REQ:
-            this.handleClientSubRequest(client, topic, auth);
+            this.handleSubRequest(client, topic, auth);
             break;
           case intents.UNS_REQ:
-            this.handleClientUnsubRequest(client, topic);
+            client.unsubscribe(topic);
             break;
           case intents.CLOSE_REQ:
-            this.handleClientCloseRequest(client);
-            client = null;
-            conn = null;
+            removeClient();
             break;
           default:
-            this.clientInvalidIntentError(client);
+            client.invalidIntentError();
         }
-      });
-
-      client.conn.on("close", () => {
-        this.handleClientCloseRequest(client);
-        client = null;
-        conn = null;
       });
     });
 
@@ -107,14 +111,14 @@ module.exports = class Pushr {
 
   /**
   * authenticate a client and save their credentials for future subscription requests.
-  * `options.storeCredentials` must be set to `true` in order to save credentials
+  * `owner.config.storeCredentials` must be set to `true` in order to save credentials
   * Responds with an acknowledgement that the credentials were saved only if
-  * `options.storeCredentials` is true.
+  * `owner.config.storeCredentials` is true.
   *
-  * @param {ClientConnection} client
-  * @param {object} payload
+  * @param {PushrClientConnection}
+  * @param {object} auth
   */
-  handleClientAuthRequest(client, auth){
+  handleAuthRequest(client, auth){
     if(!client.authenticated){
       this.authenticate(auth)
       .then(() => {
@@ -124,14 +128,15 @@ module.exports = class Pushr {
           client.send(intents.AUTH_ACK, null, null);
         }
       })
-      .catch( () => this.clientAuthenticationError(client));
+      .catch( () => client.authenticationError() );
     }else{
-      this.alreadyAuthenticatedError(client);
+      client.alreadyAuthenticatedError();
     }
   }
 
-  handleClientSubRequest(client, topic, auth = {}){
-    let subscribe = () => this.subscribe(client, topic);
+
+  handleSubRequest(client, topic, auth = {}){
+    let subscribe = () => client.subscribe(topic);
 
     if(this.publicChannels.includes(topic)){
       subscribe();
@@ -141,24 +146,21 @@ module.exports = class Pushr {
       }else{
         this.authenticate(auth)
         .then(subscribe)
-        .catch( () => this.clientAuthenticationError(client));
+        .catch( () => client.authenticationError() );
       }
     }else{
       this.authorize(client, topic, auth)
       .then(subscribe)
-      .catch( () => this.clientNotAuthorizedError(client, topic) );;
+      .catch( () => client.notAuthorizedError(topic) );;
     }
   }
 
-  handleClientUnsubRequest(client, topic){
-    this.unsubscribe(client, topic);
-  }
-
-  handleClientCloseRequest(client){
-    Object.keys(this.channels).forEach(topic => {
-      this.unsubscribe(client, topic);
+  push(topic, payload = {}){
+    return new Promise((resolve) => {
+      if(this.channels[topic])
+        this.channels[topic].forEach(client => client.push(topic, payload));
+      resolve((this.channels[topic] || []).length);
     });
-    client.send(intents.CLOSE_ACK, null);
   }
 
   handlePublishRequest(req, res){
@@ -205,69 +207,7 @@ module.exports = class Pushr {
     }
   }
 
-  subscribe(client, topic){
-    if(this.channels[topic]){
-      this.channels[topic].push(client);
-    }else{
-      this.channels[topic] = [client];
-    }
 
-    let message = `Subscribed to "${topic}"`;
-    client.send(intents.SUB_ACK, topic, {topic});
-    log(`client id: ${client.id} -- ${message}`);
-  }
-
-  unsubscribe(client, topic){
-    let channel;
-    if(channel = this.channels[topic]){
-      this.channels[topic] = channel.filter(_client => _client !== client);
-    }
-    if(channel && !channel.length){
-      delete this.channels[topic];
-    }
-
-    let message = `Unsubscribed from "${topic}"`;
-    client.send(intents.UNS_ACK, topic, {topic});
-    log(`client id: ${client.id} -- ${message}`);
-  }
-
-  push(topic, payload = {}){
-    return new Promise((resolve) => {
-      if(this.channels[topic])
-        this.channels[topic].forEach(client => client.push(topic, payload));
-      resolve((this.channels[topic] || []).length);
-    });
-  }
-
-  clientAuthenticationError(client){
-    let message = `Unable to authenticate. Invalid credentials.`;
-    client.send(intents.AUTH_REJ, null, {message});
-    log(`client id: ${client.id} -- ${message}`);
-  }
-
-  clientNotAuthorizedError(client, topic){
-    let message = `Unauthorized to subscribe to "${topic}"`;
-    client.send(intents.SUB_REJ, topic, {message});
-    log(`client id: ${client.id} -- ${message}`);
-  }
-
-  clientInvalidIntentError(client){
-    let message = `Invalid intent`;
-    client.send(intents.INVLD_INTENT, null, {message});
-    log(`client id: ${client.id} -- ${message}`);
-  }
-
-  clientInvalidMessageError(client){
-    let message = `Invalid message format, could not parse.`
-    client.send(intents.INVLD_MSG, null, {message});
-    log(`client id: ${client.id} -- ${message}`);
-  }
-
-  alreadyAuthenticatedError(client){
-    let message = `Already authenticated`;
-    client.send(intents.AUTH_ERR, null, {message});
-    log(`client id: ${client.id} -- ${message}`);
-  }
 }
 
 // utilities
@@ -275,10 +215,6 @@ function stripSlashes(path){
   return path
     .replace(/^(\/*)/, "")
     .replace(/(\/*)$/, "");
-}
-
-function timestamp(){
-  return `[ ${new Date().toISOString()} ]`;
 }
 
 function createSockService(){
@@ -295,16 +231,6 @@ function dummyAuthorize(topic, client){
 
 function dummyVerifyPublisher(headers, body, applicationKey){
   return true;
-}
-
-function log(msg){
-  if(!process.env.NODE_ENV === 'test')
-    process.stdout.write(`${timestamp()} -- ${msg}\n`);
-}
-
-function logError(msg){
-  if(!process.env.NODE_ENV === 'test')
-    process.stderr.write(`${timestamp()} -- ${msg}\n`);
 }
 
 function getter(o, p, fn){

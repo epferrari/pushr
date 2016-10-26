@@ -41,12 +41,8 @@ describe("Pushr service", () => {
       conn.emit('data', JSON.stringify(message));
     };
 
-    spyOn(pushr, "clientInvalidMessageError");
-    spyOn(pushr, "clientInvalidIntentError");
-    spyOn(pushr, "handleClientAuthRequest").and.callThrough();
-    spyOn(pushr, "alreadyAuthenticatedError");
-    //spyOn(pushr, "");
-    //spyOn(pushr, "");
+    spyOn(pushr, "handleAuthRequest").and.callThrough();
+    spyOn(pushr, "handleSubRequest").and.callThrough();
     //spyOn(pushr, "");
     //spyOn(pushr, "");
     //spyOn(pushr, "");
@@ -73,11 +69,20 @@ describe("Pushr service", () => {
   });
 
   describe("handling a client connection", () => {
-    let conn;
+    let conn, client;
 
     beforeEach(() => {
       configurePushr({authenticate});
       conn = createConnection();
+      client = pushr.channels["*"][0];
+
+      spyOn(client, "invalidIntentError");
+      spyOn(client, "unsubscribe").and.callThrough();
+      spyOn(client, "close").and.callThrough();
+    });
+
+    it("it subscribes the client to the '*' channel by default", () => {
+      expect(pushr.channels["*"].length).toBe(1);
     });
 
     describe("given the client's intent is authentication", () => {
@@ -86,31 +91,50 @@ describe("Pushr service", () => {
       });
 
       it("calls <Pushr>#handleClientAuthRequest", () => {
-        expect(pushr.handleClientAuthRequest).toHaveBeenCalled();
+        expect(pushr.handleAuthRequest).toHaveBeenCalled();
       });
     });
 
     describe("given the client's intent is subscribing", () => {
+      beforeEach(() => {
+        mockMessage(conn, {intent: intents.SUB_REQ});
+      });
 
+      it("calls <Pushr>#handleSubRequest", () => {
+        expect(pushr.handleSubRequest).toHaveBeenCalled();
+      });
     });
 
     describe("given the client's intent is unsubscribing from a topic", () => {
+      beforeEach(() => {
+        mockMessage(conn, {intent: intents.UNS_REQ});
+      });
 
+      it("unsubscribes the client", () => {
+        expect(client.unsubscribe).toHaveBeenCalled();
+      });
     });
 
     describe("given the client's intent is to close their connection", () => {
+      beforeEach(() => {
+        mockMessage(conn, {intent: intents.CLOSE_REQ});
+      });
 
+      it("closes the client's connection", () => {
+        expect(client.close).toHaveBeenCalled();
+        expect(pushr.channels["*"].length).toBe(0);
+      });
     });
 
     describe("given the client's intent is unrecognized", () => {
       it("calls <Pushr>#invalidIntentError", () => {
         mockMessage(conn, {intent: "whizbang"});
-        expect(pushr.clientInvalidIntentError).toHaveBeenCalled();
+        expect(client.invalidIntentError).toHaveBeenCalled();
       });
     });
   });
 
-  describe("#handleClientAuthRequest", () => {
+  describe("#handleAuthRequest", () => {
     let client, credentials, authentication;
 
     function configureAndSpy(config){
@@ -126,7 +150,7 @@ describe("Pushr service", () => {
         }
       });
 
-      let lastCall = pushr.handleClientAuthRequest.calls.mostRecent();
+      let lastCall = pushr.handleAuthRequest.calls.mostRecent();
       credentials = lastCall.args[1];
       client = lastCall.args[0];
 
@@ -209,7 +233,7 @@ describe("Pushr service", () => {
       });
     });
 
-    fdescribe("when authentication fails", () => {
+    describe("when authentication fails", () => {
       beforeEach( () => {
         configureAndSpy({authenticate, storeCredentials: true});
         authentication = authenticate.calls.mostRecent().returnValue;
