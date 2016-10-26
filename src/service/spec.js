@@ -55,6 +55,7 @@ describe("Pushr service", () => {
   }
 
   beforeEach(() => {
+
     // authenticate fn for Pushr config
     authenticate = jasmine.createSpy('authenticate')
       .and.callFake(() => {
@@ -67,6 +68,8 @@ describe("Pushr service", () => {
         p.reject = reject;
         return p;
       });
+
+
   });
 
   describe("handling a client connection", () => {
@@ -84,25 +87,6 @@ describe("Pushr service", () => {
 
       it("calls <Pushr>#handleClientAuthRequest", () => {
         expect(pushr.handleClientAuthRequest).toHaveBeenCalled();
-      });
-
-      describe("and given the client is not authenticated yet", () => {
-        it("authenticates the client", () => {
-          expect(authenticate).toHaveBeenCalled();
-        });
-      });
-
-      describe("and given the client already authenticated", () => {
-        it("sends the client an error", done => {
-          expect(authenticate).toHaveBeenCalledTimes(1);
-          authenticate.calls.mostRecent().returnValue.resolve();
-          setTimeout(() => {
-            mockMessage(conn, {intent: intents.AUTH_REQ});
-            expect(authenticate).toHaveBeenCalledTimes(1);
-            expect(pushr.alreadyAuthenticatedError).toHaveBeenCalled();
-            done();
-          }, 0);
-        });
       });
     });
 
@@ -127,13 +111,12 @@ describe("Pushr service", () => {
   });
 
   describe("#handleClientAuthRequest", () => {
-    let client, auth;
+    let client, credentials, authentication;
 
     function configureAndSpy(config){
-      configurePushr({authenticate});
-      conn = createConnection();
+      configurePushr(config);
 
-      mockMessage(conn, {
+      mockMessage(createConnection(), {
         intent: intents.AUTH_REQ,
         payload: {
           auth: {
@@ -144,7 +127,7 @@ describe("Pushr service", () => {
       });
 
       let lastCall = pushr.handleClientAuthRequest.calls.mostRecent();
-      auth = lastCall.args[1];
+      credentials = lastCall.args[1];
       client = lastCall.args[0];
 
       spyOn(client, 'storeCredentials');
@@ -153,48 +136,111 @@ describe("Pushr service", () => {
 
 
     describe("given an `authenticate` function is provided at configurtion", () => {
-      it("authenticates the client using the function", () => {
+      beforeEach( () => {
+        configureAndSpy({authenticate});
+      });
 
+      it("authenticates the client using the function", () => {
+        expect(authenticate).toHaveBeenCalledWith(credentials);
       });
     });
 
     describe("when authentication is successful", () => {
       describe("and given <Pushr> instance is configured to store client credentials", () => {
-        it("stores the clients credentials", () => {
 
+        beforeEach( () => {
+          configureAndSpy({authenticate, storeCredentials: true});
+          authentication = authenticate.calls.mostRecent().returnValue;
         });
 
-        it("flags the client as authenticated", () => {
+        it("stores the client's credentials", done => {
+          authentication
+            .then(() => {
+              expect(client.storeCredentials).toHaveBeenCalledWith(credentials);
+              done();
+            });
 
+          authentication.resolve();
         });
 
-        it("sends acknowledgement to the client", () => {
+        it("flags the client as authenticated", done => {
+          authentication.then(() => {
+            expect(client.authenticated).toBe(true);
+            done();
+          });
 
+          authentication.resolve();
+        });
+
+        it("sends acknowledgement to the client", done => {
+          authentication.then(() => {
+            expect(client.send).toHaveBeenCalledWith(intents.AUTH_ACK, null, null);
+            done();
+          });
+
+          authentication.resolve();
         });
       });
 
       describe("and given <Pushr> instance is configured not to store client credentials", () => {
-        it("does not store the clients credentials", () => {
-
+        beforeEach( () => {
+          configureAndSpy({authenticate, storeCredentials: false});
+          authentication = authenticate.calls.mostRecent().returnValue;
         });
 
-        it("does not flag the client as authenticated", () => {
+        it("does not store the clients credentials", done => {
+          authentication
+            .then(() => {
+              expect(client.storeCredentials).not.toHaveBeenCalled();
+              done();
+            });
 
+          authentication.resolve();
+        });
+
+        it("does not flag the client as authenticated", done => {
+          authentication.then(() => {
+            expect(client.authenticated).toBe(false);
+            done();
+          });
+
+          authentication.resolve();
         });
       });
     });
 
-    describe("when authentication fails", () => {
-      it("notifies the client of the authentication error", () => {
-
+    fdescribe("when authentication fails", () => {
+      beforeEach( () => {
+        configureAndSpy({authenticate, storeCredentials: true});
+        authentication = authenticate.calls.mostRecent().returnValue;
       });
 
-      it("does not store the clients credentials", () => {
+      it("notifies the client of the authentication error", done => {
+        setTimeout(() => {
+          expect(client.send).toHaveBeenCalled()
+          expect(client.send.calls.mostRecent().args[0]).toBe(intents.AUTH_REJ);
+          done();
+        }, 0);
 
+        authentication.reject();
       });
 
-      it("does not flag the client as authenticated", () => {
+      it("does not store the clients credentials", done => {
+        setTimeout(() => {
+          expect(client.storeCredentials).not.toHaveBeenCalled();
+          done();
+        }, 0);
 
+        authentication.reject();
+      });
+
+      it("does not flag the client as authenticated", done => {
+        setTimeout(() => {
+          expect(client.authenticated).toBe(false);
+          done();
+        }, 0);
+
+        authentication.reject();
       });
     });
   });

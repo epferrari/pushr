@@ -298,11 +298,13 @@ function dummyVerifyPublisher(headers, body, applicationKey){
 }
 
 function log(msg){
-  process.stdout.write(`${timestamp()} -- ${msg}\n`);
+  if(!process.env.NODE_ENV === 'test')
+    process.stdout.write(`${timestamp()} -- ${msg}\n`);
 }
 
 function logError(msg){
-  process.stderr.write(`${timestamp()} -- ${msg}\n`);
+  if(!process.env.NODE_ENV === 'test')
+    process.stderr.write(`${timestamp()} -- ${msg}\n`);
 }
 
 function getter(o, p, fn){

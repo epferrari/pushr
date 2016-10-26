@@ -4,7 +4,7 @@
   "description": "A push-only websocket service with channel authentication",
   "main": "index.js",
   "scripts": {
-    "test": "JASMINE_CONFIG_PATH=./jasmine.json jasmine"
+    "test": "NODE_ENV=test JASMINE_CONFIG_PATH=./jasmine.json jasmine"
   },
   "keywords": [
     "websocket",
