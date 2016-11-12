@@ -70,6 +70,11 @@ module.exports = class PushrClient {
     }
   }
 
+  didAuthenticate(){
+    this.authenticated = true;
+    this.send(intents.AUTH_ACK, null, null);
+  }
+
   didSubscribe(topic){
     let message = `Subscribed to "${topic}"`;
     this.send(intents.SUB_ACK, topic, {topic});

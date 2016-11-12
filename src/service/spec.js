@@ -97,7 +97,7 @@ describe("Pushr service", () => {
       });
     });
 
-    describe("given the client's intent is subscribing", () => {
+    describe("given the client's intent is subscribing to a topic", () => {
       beforeEach(() => {
         message = {
           intent: intents.SUB_REQ,
@@ -127,7 +127,7 @@ describe("Pushr service", () => {
       });
     });
 
-    describe("given the client's intent is to close their connection", () => {
+    describe("given the client's intent is closing their connection", () => {
       beforeEach(() => {
         message = {intent: intents.CLOSE_REQ};
         mockMessage(conn, message);

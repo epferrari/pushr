@@ -57,7 +57,7 @@ module.exports = class Pushr {
       }
     );
 
-    server.on('request', this.handlePublishRequest.bind(this));
+    server.on('request', this.handlePushRequest.bind(this));
 
     sockService.on('connection', conn => {
       let client = new ClientConnection(conn, this);
@@ -115,9 +115,9 @@ module.exports = class Pushr {
 
   /**
   * authenticate a client and save their credentials for future subscription requests.
-  * `owner.config.storeCredentials` must be set to `true` in order to save credentials
+  * `<Pushr>.config.storeCredentials` must be set to `true` in order to save credentials
   * Responds with an acknowledgement that the credentials were saved only if
-  * `owner.config.storeCredentials` is true.
+  * `<Pushr>.config.storeCredentials` is true.
   *
   * @param {PushrClientConnection}
   * @param {object} auth
@@ -130,8 +130,7 @@ module.exports = class Pushr {
           client.privateAlias = data.privateAlias;
           if(this.storeCredentials){
             client.storeCredentials(payload.auth);
-            client.authenticated = true;
-            client.send(intents.AUTH_ACK, null, null);
+            client.didAuthenticate();
           }
         })
         .catch( () => client.authenticationError() );
@@ -155,7 +154,7 @@ module.exports = class Pushr {
   authorizeClientBroadcast(client, topic, payload = {}){
     let push = () => {
       payload.sender = client.publicAlias;
-      this.push(topic, payload);
+      this.push(topic, payload, client);
     };
 
     if(client.authorized(topic)){
@@ -168,15 +167,16 @@ module.exports = class Pushr {
   }
 
 
-  push(topic, payload = {}){
+  push(topic, payload = {}, sender){
     return new Promise((resolve) => {
       let clientCount = (this.channels[topic] || []).length,
           msg;
 
       if(clientCount){
-        this.channels[topic].forEach(client =>
-          client.send(intents.PUSH, topic, payload)
-        );
+        this.channels[topic].forEach(client => {
+          if(client !== sender)
+            client.send(intents.PUSH, topic, payload)
+        });
 
         let {event} = payload;
         msg = `pushed to ${clientCount} clients subscribed to "${topic}"`;
@@ -190,7 +190,7 @@ module.exports = class Pushr {
     });
   }
 
-  handlePublishRequest(req, res){
+  handlePushRequest(req, res){
     if(req.method === 'POST' && stripSlashes(req.url) === this.publishUrl){
       let body = [], msg;
 
