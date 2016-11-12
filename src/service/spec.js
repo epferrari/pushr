@@ -41,8 +41,8 @@ describe("Pushr service", () => {
       conn.emit('data', JSON.stringify(message));
     };
 
-    spyOn(pushr, "handleAuthRequest").and.callThrough();
-    spyOn(pushr, "handleSubRequest").and.callThrough();
+    spyOn(pushr, "authenticateClient").and.callThrough();
+    spyOn(pushr, "authorizeClientSubscription").and.callThrough();
     //spyOn(pushr, "");
     //spyOn(pushr, "");
     //spyOn(pushr, "");
@@ -69,7 +69,7 @@ describe("Pushr service", () => {
   });
 
   describe("handling a client connection", () => {
-    let conn, client;
+    let conn, client, message;
 
     beforeEach(() => {
       configurePushr({authenticate});
@@ -87,37 +87,50 @@ describe("Pushr service", () => {
 
     describe("given the client's intent is authentication", () => {
       beforeEach(() => {
-        mockMessage(conn, {intent: intents.AUTH_REQ});
+        message = {intent: intents.AUTH_REQ};
+        mockMessage(conn, message);
       });
 
-      it("calls <Pushr>#handleClientAuthRequest", () => {
-        expect(pushr.handleAuthRequest).toHaveBeenCalled();
+      it("it authenticates the client", () => {
+        expect(pushr.authenticateClient)
+          .toHaveBeenCalledWith(client, {});
       });
     });
 
     describe("given the client's intent is subscribing", () => {
       beforeEach(() => {
-        mockMessage(conn, {intent: intents.SUB_REQ});
+        message = {
+          intent: intents.SUB_REQ,
+          topic: 'test'
+        };
+        mockMessage(conn, message);
       });
 
-      it("calls <Pushr>#handleSubRequest", () => {
-        expect(pushr.handleSubRequest).toHaveBeenCalled();
+      it("authorizes the client subscription", () => {
+        expect(pushr.authorizeClientSubscription)
+          .toHaveBeenCalledWith(client, 'test', {});
       });
     });
 
     describe("given the client's intent is unsubscribing from a topic", () => {
       beforeEach(() => {
-        mockMessage(conn, {intent: intents.UNS_REQ});
+        message = {
+          intent: intents.UNS_REQ,
+          topic: 'test'
+        };
+        mockMessage(conn, message);
       });
 
       it("unsubscribes the client", () => {
-        expect(client.unsubscribe).toHaveBeenCalled();
+        expect(client.unsubscribe)
+          .toHaveBeenCalledWith('test');
       });
     });
 
     describe("given the client's intent is to close their connection", () => {
       beforeEach(() => {
-        mockMessage(conn, {intent: intents.CLOSE_REQ});
+        message = {intent: intents.CLOSE_REQ};
+        mockMessage(conn, message);
       });
 
       it("closes the client's connection", () => {
@@ -127,31 +140,31 @@ describe("Pushr service", () => {
     });
 
     describe("given the client's intent is unrecognized", () => {
-      it("calls <Pushr>#invalidIntentError", () => {
-        mockMessage(conn, {intent: "whizbang"});
+      it("returns an error to the client", () => {
+        message = {intent: "whizbang"};
+        mockMessage(conn, message);
         expect(client.invalidIntentError).toHaveBeenCalled();
       });
     });
   });
 
-  describe("#handleAuthRequest", () => {
-    let client, credentials, authentication;
+  describe("#authenticateClient", () => {
+    let client, auth, authentication;
 
     function configureAndSpy(config){
       configurePushr(config);
 
+      auth = {
+        username: "john_smith",
+        password: "strong_password_1"
+      };
+
       mockMessage(createConnection(), {
         intent: intents.AUTH_REQ,
-        payload: {
-          auth: {
-            username: "john_smith",
-            password: "strong_password_1"
-          }
-        }
+        payload: {auth}
       });
 
-      let lastCall = pushr.handleAuthRequest.calls.mostRecent();
-      credentials = lastCall.args[1];
+      let lastCall = pushr.authenticateClient.calls.mostRecent();
       client = lastCall.args[0];
 
       spyOn(client, 'storeCredentials');
@@ -165,7 +178,7 @@ describe("Pushr service", () => {
       });
 
       it("authenticates the client using the function", () => {
-        expect(authenticate).toHaveBeenCalledWith(credentials);
+        expect(authenticate).toHaveBeenCalledWith(auth);
       });
     });
 
@@ -180,7 +193,7 @@ describe("Pushr service", () => {
         it("stores the client's credentials", done => {
           authentication
             .then(() => {
-              expect(client.storeCredentials).toHaveBeenCalledWith(credentials);
+              expect(client.storeCredentials).toHaveBeenCalledWith(auth);
               done();
             });
 
@@ -198,7 +211,8 @@ describe("Pushr service", () => {
 
         it("sends acknowledgement to the client", done => {
           authentication.then(() => {
-            expect(client.send).toHaveBeenCalledWith(intents.AUTH_ACK, null, null);
+            expect(client.send)
+              .toHaveBeenCalledWith(intents.AUTH_ACK, null, null);
             done();
           });
 

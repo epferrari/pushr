@@ -51,7 +51,8 @@ module.exports = class Pushr {
           return config.authorizeChannel(topic, client.credentials)
         }else{
           return this.authenticate(auth)
-            .then( () => config.authorizeChannel(topic, auth) )
+            .catch(() => client.notAuthenticatedError())
+            .then(() => config.authorizeChannel(topic, auth))
         }
       }
     );
@@ -80,14 +81,17 @@ module.exports = class Pushr {
         }
 
         let {intent, topic, payload} = message;
-        let auth = (payload || {}).auth;
+        payload = (payload || {});
 
         switch(intent){
           case intents.AUTH_REQ:
-            this.handleAuthRequest(client, auth);
+            this.authenticateClient(client, payload);
             break;
           case intents.SUB_REQ:
-            this.handleSubRequest(client, topic, auth);
+            this.authorizeClientSubscription(client, topic, payload);
+            break;
+          case intents.PUB_REQ:
+            this.authorizeClientBroadcast(client, topic, payload);
             break;
           case intents.UNS_REQ:
             client.unsubscribe(topic);
@@ -118,48 +122,71 @@ module.exports = class Pushr {
   * @param {PushrClientConnection}
   * @param {object} auth
   */
-  handleAuthRequest(client, auth){
+  authenticateClient(client, payload = {}){
     if(!client.authenticated){
-      this.authenticate(auth)
-      .then(() => {
-        if(this.storeCredentials){
-          client.storeCredentials(auth);
-          client.authenticated = true;
-          client.send(intents.AUTH_ACK, null, null);
-        }
-      })
-      .catch( () => client.authenticationError() );
+      this.authenticate(payload.auth)
+        .then((data = {}) => {
+          client.publicAlias = data.publicAlias;
+          client.privateAlias = data.privateAlias;
+          if(this.storeCredentials){
+            client.storeCredentials(payload.auth);
+            client.authenticated = true;
+            client.send(intents.AUTH_ACK, null, null);
+          }
+        })
+        .catch( () => client.authenticationError() );
     }else{
       client.alreadyAuthenticatedError();
     }
   }
 
-
-  handleSubRequest(client, topic, auth = {}){
+  authorizeClientSubscription(client, topic, payload = {}){
     let subscribe = () => client.subscribe(topic);
 
-    if(this.publicChannels.includes(topic)){
+    if(client.authorized(topic)){
       subscribe();
-    }else if(this.protectedChannels.includes(topic)){
-      if(client.authenticated){
-        subscribe();
-      }else{
-        this.authenticate(auth)
-        .then(subscribe)
-        .catch( () => client.authenticationError() );
-      }
     }else{
-      this.authorize(client, topic, auth)
-      .then(subscribe)
-      .catch( () => client.notAuthorizedError(topic) );;
+      this.authorize(client, topic, payload.auth)
+        .then(subscribe)
+        .catch(() => client.subscriptionNotAuthorizedError(topic));
     }
   }
 
+  authorizeClientBroadcast(client, topic, payload = {}){
+    let push = () => {
+      payload.sender = client.publicAlias;
+      this.push(topic, payload);
+    };
+
+    if(client.authorized(topic)){
+      push();
+    } else {
+      this.authorize(client, topic, payload.auth)
+        .then(push)
+        .catch(() => client.broadcastNotAuthorizedError(topic));
+    }
+  }
+
+
   push(topic, payload = {}){
     return new Promise((resolve) => {
-      if(this.channels[topic])
-        this.channels[topic].forEach(client => client.push(topic, payload));
-      resolve((this.channels[topic] || []).length);
+      let clientCount = (this.channels[topic] || []).length,
+          msg;
+
+      if(clientCount){
+        this.channels[topic].forEach(client =>
+          client.send(intents.PUSH, topic, payload)
+        );
+
+        let {event} = payload;
+        msg = `pushed to ${clientCount} clients subscribed to "${topic}"`;
+        event && (msg = `${msg}. event: "${event}"`);
+      }else{
+        msg = `no clients subscribed to "${topic}"`;
+        log(`received message, ${msg}`);
+      }
+
+      resolve({msg, clientCount});
     });
   }
 
@@ -182,20 +209,10 @@ module.exports = class Pushr {
             res.end(msg);
           }else{
             this.push(topic, {event, data})
-              .then(n => {
-                if(n){
-                  msg = `pushed to ${n} clients subscribed to "${topic}"`;
-                  event && (msg = `${msg}. event: "${event}"`);
-                  log(`received message, ${msg}`);
-                  res.statusCode = 200;
-                  res.end(msg);
-                }else{
-                  msg = `no clients subscribed to "${topic}"`;
-                  log(`received message, ${msg}`);
-                  res.statusCode = 404;
-                  res.end(msg);
-                }
-              });
+            .then(result => {
+              res.statusCode = result.clientCount ? 200 : 404;
+              res.end(result.msg);
+            });
           }
         }catch (err){
           msg = 'Bad Request';

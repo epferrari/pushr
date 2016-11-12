@@ -20,5 +20,10 @@ module.exports = {
 
   INVLD_INTENT: 16,   // invalid message intent (server => client)
   INVLD_MSG: 17,      // invalid message shape (server => client)
-  PUSH: 18            // message pushed from server (server => client)
+  PUSH: 18,           // message pushed from server (server => client)
+
+  PUB_REQ: 19,        // message pushed from client (client => server => client(s))
+  PUB_ACK: 20,
+  PUB_REJ: 21,
+  PUB_ERR: 22
 };

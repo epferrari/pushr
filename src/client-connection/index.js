@@ -27,12 +27,9 @@ module.exports = class PushrClient {
     });
   }
 
+
   send(intent, topic, payload = {}){
     this.conn.write(JSON.stringify({ intent, topic, payload }));
-  }
-
-  push(topic, payload = {}){
-    this.send(intents.PUSH, topic, payload);
   }
 
   subscribe(topic){
@@ -42,10 +39,7 @@ module.exports = class PushrClient {
     }else{
       channels[topic] = [this];
     }
-
-    let message = `Subscribed to "${topic}"`;
-    this.send(intents.SUB_ACK, topic, {topic});
-    log(`client id: ${this.id} -- ${message}`);
+    this.didSubscribe(topic);
   }
 
   unsubscribe(topic){
@@ -56,46 +50,83 @@ module.exports = class PushrClient {
     if(channel && !channel.length){
       delete channels[topic];
     }
-
-    let message = `Unsubscribed from "${topic}"`;
-    this.send(intents.UNS_ACK, topic, {topic});
-    log(`client id: ${this.id} -- ${message}`);
+    this.didUnsubscribe(topic);
   }
 
   close(){
-    Object.keys(this.owner.channels).forEach(topic => {
-      this.unsubscribe(topic);
-    });
+    let {owner, unsubscribe} = this;
+    Object.keys(owner.channels).forEach(unsubscribe.bind(this));
+    this.didClose();
+  }
+
+  authorized(topic){
+    let {owner} = this;
+    if(owner.publicChannels.includes(topic)){
+      return true;
+    }else if(owner.protectedChannels.includes(topic) && this.authenticated){
+      return true;
+    }else{
+      return !!(owner.channels[topic] && owner.channels[topic].includes(this));
+    }
+  }
+
+  didSubscribe(topic){
+    let message = `Subscribed to "${topic}"`;
+    this.send(intents.SUB_ACK, topic, {topic});
+    this.log(message);
+  }
+
+  didUnsubscribe(topic){
+    let message = `Unsubscribed from "${topic}"`;
+    this.send(intents.UNS_ACK, topic, {topic});
+    this.log(message);
+  }
+
+  didClose(){
     this.send(intents.CLOSE_ACK, null);
   }
 
   authenticationError(){
     let message = `Unable to authenticate. Invalid credentials.`;
     this.send(intents.AUTH_REJ, null, {message});
-    log(`client id: ${this.id} -- ${message}`);
+    this.log(message);
   }
 
-  notAuthorizedError(topic){
+  subscriptionNotAuthorizedError(topic){
     let message = `Unauthorized to subscribe to "${topic}"`;
     this.send(intents.SUB_REJ, topic, {message});
-    log(`client id: ${this.id} -- ${message}`);
+    this.log(message);
+  }
+
+  broadcastNotAuthorizedError(topic){
+    let message = `Unauthorized to broadcast to "${topic}"`;
+    this.send(intents.PUB_REJ, topic, {message});
+    this.log(message);
   }
 
   alreadyAuthenticatedError(){
     let message = `Already authenticated`;
     this.send(intents.AUTH_ERR, null, {message});
-    log(`client id: ${this.id} -- ${message}`);
+    this.log(message);
   }
 
   invalidMessageError(){
     let message = `Invalid message format, could not parse.`
     this.send(intents.INVLD_MSG, null, {message});
-    log(`client id: ${this.id} -- ${message}`);
+    this.log(message);
   }
 
   invalidIntentError(){
     let message = `Invalid intent`;
     this.send(intents.INVLD_INTENT, null, {message});
+    this.log(message);
+  }
+
+  log(message){
     log(`client id: ${this.id} -- ${message}`);
+  }
+
+  logError(message){
+    logError(`client id: ${this.id} -- ${message}`);
   }
 }
