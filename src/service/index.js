@@ -179,13 +179,13 @@ module.exports = class Pushr {
         });
 
         let {event} = payload;
-        msg = `pushed to ${clientCount} clients subscribed to "${topic}"`;
-        event && (msg = `${msg}. event: '${event}'`);
+        msg = `pushed to ${clientCount} clients subscribed to '${topic}'`;
+        event && (msg = `${msg}, event: '${event}'`);
       }else{
         msg = `no clients subscribed to '${topic}'`;
-        log(`received message, ${msg}`);
       }
 
+      log(`received message, ${msg}`);
       resolve({msg, clientCount});
     });
   }
@@ -211,7 +211,11 @@ module.exports = class Pushr {
             this.push(topic, {event, data})
             .then(result => {
               res.statusCode = result.clientCount ? 200 : 404;
-              res.end(result.msg);
+              res.end(JSON.stringify({
+                clients: result.clientCount,
+                topic,
+                event
+              }));
             });
           }
         }catch (err){
