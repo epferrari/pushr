@@ -18,12 +18,12 @@ module.exports = {
   CLOSE_ACK: 14,      // connection close acknowledgement (server => client)
   CLOSE_ERR: 15,      // connection close error (server => client)
 
-  INVLD_INTENT: 16,   // invalid message intent (server => client)
+  INVLD_INT: 16,   // invalid message intent (server => client)
   INVLD_MSG: 17,      // invalid message shape (server => client)
   PUSH: 18,           // message pushed from server (server => client)
 
-  PUB_REQ: 19,        // message pushed from client (client => server => client(s))
-  PUB_ACK: 20,
-  PUB_REJ: 21,
-  PUB_ERR: 22
+  PUB_REQ: 19,        // message pushed from client (client => server)
+  PUB_ACK: 20,        // client-to-client push acknowledgement (server => client)
+  PUB_REJ: 21,        // client-to-client push rejection (server => client)
+  PUB_ERR: 22         // client-to-client push error (server => client)
 };

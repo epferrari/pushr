@@ -123,7 +123,7 @@ module.exports = class PushrClient {
 
   invalidIntentError(){
     let message = `Invalid intent`;
-    this.send(intents.INVLD_INTENT, null, {message});
+    this.send(intents.INVLD_INT, null, {message});
     this.log(message);
   }
 
