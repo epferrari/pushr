@@ -25,11 +25,27 @@ module.exports = class PushrClient {
       enumerable: false,
       configurable: false
     });
+
+    this.subscribe("*");
+    this.send(intents.CONN_ACK, {payload: {client_id: this.id}});
   }
 
 
-  send(intent, topic, payload = {}){
-    this.conn.write(JSON.stringify({ intent, topic, payload }));
+  send(intent, message = {}){
+    /*
+    * {
+    *   intent: <String intent>,
+    *   topic: <String>,
+    *   payload: <Object>,
+    *   error: <String>,
+    *   _self: <Boolean>,
+    *   _sender: <Object>
+    * }
+    */
+    message.intent = intent;
+    // security precaution
+    delete message.auth;
+    this.conn.write(JSON.stringify(message));
   }
 
   subscribe(topic){
@@ -72,59 +88,59 @@ module.exports = class PushrClient {
 
   didAuthenticate(){
     this.authenticated = true;
-    this.send(intents.AUTH_ACK, null, null);
+    this.send(intents.AUTH_ACK);
   }
 
   didSubscribe(topic){
     let message = `Subscribed to '${topic}'`;
-    this.send(intents.SUB_ACK, topic, {topic});
+    this.send(intents.SUB_ACK, {topic});
     this.log(message);
   }
 
   didUnsubscribe(topic){
     let message = `Unsubscribed from '${topic}'`;
-    this.send(intents.UNS_ACK, topic, {topic});
+    this.send(intents.UNS_ACK, {topic});
     this.log(message);
   }
 
   didClose(){
-    this.send(intents.CLOSE_ACK, null);
+    this.send(intents.CLOSE_ACK);
   }
 
   authenticationError(){
-    let message = `Unable to authenticate. Invalid credentials.`;
-    this.send(intents.AUTH_REJ, null, {message});
-    this.log(message);
+    let error = `Unable to authenticate. Invalid credentials.`;
+    this.send(intents.AUTH_REJ, {error});
+    this.log(error);
   }
 
   subscriptionNotAuthorizedError(topic){
-    let message = `Unauthorized to subscribe to '${topic}'`;
-    this.send(intents.SUB_REJ, topic, {message});
-    this.log(message);
+    let error = `Unauthorized to subscribe to '${topic}'`;
+    this.send(intents.SUB_REJ, {topic, error});
+    this.log(error);
   }
 
   broadcastNotAuthorizedError(topic){
-    let message = `Unauthorized to broadcast to '${topic}'`;
-    this.send(intents.PUB_REJ, topic, {message});
-    this.log(message);
+    let error = `Unauthorized to broadcast to '${topic}'`;
+    this.send(intents.PUB_REJ, {topic, error});
+    this.log(error);
   }
 
   alreadyAuthenticatedError(){
-    let message = `Already authenticated`;
-    this.send(intents.AUTH_ERR, null, {message});
-    this.log(message);
+    let error = `Already authenticated`;
+    this.send(intents.AUTH_ERR, {error});
+    this.log(error);
   }
 
   invalidMessageError(){
-    let message = `Invalid message format, could not parse.`
-    this.send(intents.INVLD_MSG, null, {message});
-    this.log(message);
+    let error = `Invalid message format, could not parse.`
+    this.send(intents.MSG_ERR, {error});
+    this.log(error);
   }
 
-  invalidIntentError(){
-    let message = `Invalid intent`;
-    this.send(intents.INVLD_INT, null, {message});
-    this.log(message);
+  invalidIntentError(intent){
+    let error = `Invalid intent '${intent}'`;
+    this.send(intents.INTENT_ERR, {error});
+    this.log(error);
   }
 
   log(message){

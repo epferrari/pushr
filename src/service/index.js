@@ -62,8 +62,6 @@ module.exports = class Pushr {
     sockService.on('connection', conn => {
       let client = new ClientConnection(conn, this);
 
-      client.subscribe("*");
-
       let removeClient = () => {
         client.close();
         client = null;
@@ -80,18 +78,18 @@ module.exports = class Pushr {
           return;
         }
 
-        let {intent, topic, payload} = message;
+        let {intent, topic, payload, auth} = message;
         payload = (payload || {});
 
         switch(intent){
           case intents.AUTH_REQ:
-            this.authenticateClient(client, payload);
+            this.authenticateClient(client, auth);
             break;
           case intents.SUB_REQ:
-            this.authorizeClientSubscription(client, topic, payload);
+            this.authorizeClientSubscription(client, topic, auth);
             break;
           case intents.PUB_REQ:
-            this.authorizeClientBroadcast(client, topic, payload);
+            this.authorizeClientBroadcast(client, topic, message);
             break;
           case intents.UNS_REQ:
             client.unsubscribe(topic);
@@ -100,7 +98,7 @@ module.exports = class Pushr {
             removeClient();
             break;
           default:
-            client.invalidIntentError();
+            client.invalidIntentError(intent);
         }
       });
     });
@@ -122,14 +120,14 @@ module.exports = class Pushr {
   * @param {PushrClientConnection}
   * @param {object} auth
   */
-  authenticateClient(client, payload = {}){
+  authenticateClient(client, auth){
     if(!client.authenticated){
-      this.authenticate(payload.auth)
+      this.authenticate(auth)
         .then((data = {}) => {
           client.publicAlias = data.publicAlias;
           client.privateAlias = data.privateAlias;
           if(this.storeCredentials){
-            client.storeCredentials(payload.auth);
+            client.storeCredentials(auth);
             client.didAuthenticate();
           }
         })
@@ -139,46 +137,49 @@ module.exports = class Pushr {
     }
   }
 
-  authorizeClientSubscription(client, topic, payload = {}){
+  authorizeClientSubscription(client, topic, auth){
     let subscribe = () => client.subscribe(topic);
 
     if(client.authorized(topic)){
       subscribe();
     }else{
-      this.authorize(client, topic, payload.auth)
+      this.authorize(client, topic, auth)
         .then(subscribe)
         .catch(() => client.subscriptionNotAuthorizedError(topic));
     }
   }
 
-  authorizeClientBroadcast(client, topic, payload = {}){
-    let push = () => {
-      payload.sender = client.publicAlias;
-      this.push(topic, payload, client);
-    };
+  authorizeClientBroadcast(client, topic, message = {}){
+    let {auth, payload} = message;
+    let push = () => this.push(topic, {payload}, client);
 
     if(client.authorized(topic)){
       push();
     } else {
-      this.authorize(client, topic, payload.auth)
+      this.authorize(client, topic, message.auth)
         .then(push)
         .catch(() => client.broadcastNotAuthorizedError(topic));
     }
   }
 
 
-  push(topic, payload = {}, sender){
+  push(topic, message = {}, sender){
     return new Promise((resolve) => {
       let clientCount = (this.channels[topic] || []).length,
           msg;
 
       if(clientCount){
+        message.topic = topic;
         this.channels[topic].forEach(client => {
-          if(client !== sender)
-            client.send(intents.PUSH, topic, payload)
+          message._self = (sender === client);
+          message._sender = {
+            client_id: client.id,
+            alias: client.publicAlias
+          };
+          client.send(intents.MSG, message);
         });
 
-        let {event} = payload;
+        let {event} = message;
         msg = `pushed to ${clientCount} clients subscribed to '${topic}'`;
         event && (msg = `${msg}, event: '${event}'`);
       }else{
@@ -200,7 +201,7 @@ module.exports = class Pushr {
         body = Buffer.concat(body).toString();
         try {
           body = JSON.parse(body);
-          let {topic, event, data} = body;
+          let {topic, event, payload} = body;
 
           if( !this.verifyPublisher(req.headers, body, this.applicationKey) ){
             msg = 'unauthorized publish request';
@@ -208,7 +209,7 @@ module.exports = class Pushr {
             res.statusCode = 401;
             res.end(msg);
           }else{
-            this.push(topic, {event, data})
+            this.push(topic, {event, payload})
             .then(result => {
               res.statusCode = result.clientCount ? 200 : 404;
               res.end(JSON.stringify({

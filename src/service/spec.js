@@ -87,7 +87,7 @@ describe("Pushr service", () => {
 
     describe("given the client's intent is authentication", () => {
       beforeEach(() => {
-        message = {intent: intents.AUTH_REQ};
+        message = {intent: intents.AUTH_REQ, auth: {}};
         mockMessage(conn, message);
       });
 
@@ -101,7 +101,8 @@ describe("Pushr service", () => {
       beforeEach(() => {
         message = {
           intent: intents.SUB_REQ,
-          topic: 'test'
+          topic: 'test',
+          auth: {}
         };
         mockMessage(conn, message);
       });
@@ -161,7 +162,7 @@ describe("Pushr service", () => {
 
       mockMessage(createConnection(), {
         intent: intents.AUTH_REQ,
-        payload: {auth}
+        auth
       });
 
       let lastCall = pushr.authenticateClient.calls.mostRecent();
@@ -212,7 +213,7 @@ describe("Pushr service", () => {
         it("sends acknowledgement to the client", done => {
           authentication.then(() => {
             expect(client.send)
-              .toHaveBeenCalledWith(intents.AUTH_ACK, null, null);
+              .toHaveBeenCalledWith(intents.AUTH_ACK);
             done();
           });
 
