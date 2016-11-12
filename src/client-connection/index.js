@@ -76,13 +76,13 @@ module.exports = class PushrClient {
   }
 
   didSubscribe(topic){
-    let message = `Subscribed to "${topic}"`;
+    let message = `Subscribed to '${topic}'`;
     this.send(intents.SUB_ACK, topic, {topic});
     this.log(message);
   }
 
   didUnsubscribe(topic){
-    let message = `Unsubscribed from "${topic}"`;
+    let message = `Unsubscribed from '${topic}'`;
     this.send(intents.UNS_ACK, topic, {topic});
     this.log(message);
   }
@@ -98,13 +98,13 @@ module.exports = class PushrClient {
   }
 
   subscriptionNotAuthorizedError(topic){
-    let message = `Unauthorized to subscribe to "${topic}"`;
+    let message = `Unauthorized to subscribe to '${topic}'`;
     this.send(intents.SUB_REJ, topic, {message});
     this.log(message);
   }
 
   broadcastNotAuthorizedError(topic){
-    let message = `Unauthorized to broadcast to "${topic}"`;
+    let message = `Unauthorized to broadcast to '${topic}'`;
     this.send(intents.PUB_REJ, topic, {message});
     this.log(message);
   }

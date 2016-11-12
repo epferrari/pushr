@@ -180,9 +180,9 @@ module.exports = class Pushr {
 
         let {event} = payload;
         msg = `pushed to ${clientCount} clients subscribed to "${topic}"`;
-        event && (msg = `${msg}. event: "${event}"`);
+        event && (msg = `${msg}. event: '${event}'`);
       }else{
-        msg = `no clients subscribed to "${topic}"`;
+        msg = `no clients subscribed to '${topic}'`;
         log(`received message, ${msg}`);
       }
 
